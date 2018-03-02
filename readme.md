@@ -30,7 +30,7 @@ except ThinClientException as e:
 ## How to run tests?
 
 Requirements: 
-* Noise test framework
+* Nose test framework
 * Apache Ignite 2.4+ installation.
 
 Run:
@@ -40,7 +40,7 @@ Run:
 
 * Start tests 
 
-`noise -v tests`
+`nosetests -v tests`
 
 ## License
 
