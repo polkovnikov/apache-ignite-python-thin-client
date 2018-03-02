@@ -5,7 +5,7 @@
 The client designed for the new client binary protocol introdiced in Apache Ignite 2.0
 https://cwiki.apache.org/confluence/display/IGNITE/IEP-9+Thin+Client+Protocol
 
-## Is the Apache Ignite Python Thin Client fully compatible with client protocol
+## Is the Apache Ignite Python Thin Client fully compatible with client protocol?
 
 No. The python client supports only limited set of cache operations, namely:
 `cache_put`,`cache_put_all`,`cache_get`,`cache_get_all`,`cache_remove_key`,
@@ -14,7 +14,7 @@ No. The python client supports only limited set of cache operations, namely:
 
 ## How to use it?
 ```python
-ignite import ThinClient, ThinClientException
+from ignite import ThinClient, ThinClientException
 
 thin_client = ThinClient()
 try:
@@ -28,5 +28,20 @@ except ThinClientException as e:
 ```
 
 ## How to run tests?
-Noise test framewrok used for Apache Ignite Python Thin Client
+
+Requirements: 
+* Noise test framework
+* Apache Ignite 2.4+ installation.
+
+Run:
+* Start Apache Ignite node(s) with test configuration file:
+
+`$IGNITE_HOME/bin/ignite.sh tests/test.xml`
+
+* Start tests 
+
 `noise -v tests`
+
+## License
+
+Apache Ignite Python Thin Client distributed under Apache License 2.0
