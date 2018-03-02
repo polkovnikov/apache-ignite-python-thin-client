@@ -2,7 +2,7 @@
 
 ##  What is Apache Ignite Python Thin Client?
 
-The client designed for the new client binary protocol introdiced in Apache Ignite 2.4
+The client designed for the new client binary protocol introduced in Apache Ignite 2.4
 https://cwiki.apache.org/confluence/display/IGNITE/IEP-9+Thin+Client+Protocol
 
 ## Is Apache Ignite Python Thin Client fully compatible with client protocol?
