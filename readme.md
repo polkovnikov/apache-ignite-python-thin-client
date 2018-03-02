@@ -20,7 +20,7 @@ thin_client = ThinClient()
 try:
   thin_client.connect()
   thin_client.cache_put('mycache', 1, 'value 1')
-  value = thin_client.get('mycache', 1)
+  value = thin_client.cache_get('mycache', 1)
   print(value)
 except ThinClientException as e:
   print(str(e))
