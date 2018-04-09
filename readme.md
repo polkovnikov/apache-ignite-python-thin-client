@@ -56,14 +56,33 @@ Requirements:
 * Nose test framework
 * Apache Ignite 2.4+ installation.
 
-Run:
+### Regular tests 
+
+Run Ignite cluster:
+
 * Start Apache Ignite node(s) with test configuration file:
 
 `$IGNITE_HOME/bin/ignite.sh tests/test.xml`
 
-* Start tests 
+* Start regular tests 
 
-`nosetests -v tests`
+`nosetests -v tests/test_thin_client.py`
+
+### Authentication tests
+
+Run Ignite cluster:
+
+* Start Apache Ignite node(s) with test configuration file:
+
+`$IGNITE_HOME/bin/ignite.sh tests/test_auth.xml`
+
+* Activate cluster
+
+`$IGNITE_HOME/bin/control.sh --user ignite --password ignite --activate`
+
+* Start authentication tests 
+
+`nosetests -v tests/test_thin_client_auth.py`
 
 ## License
 

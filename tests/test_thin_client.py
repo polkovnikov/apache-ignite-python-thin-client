@@ -12,7 +12,7 @@ def setup_module():
         thin.connect()
     except ConnectionRefusedError as e:
         print('The thin client tests required started Apache Ignite cluster.\n'
-              'Please read readme.txt for instruction how to start Apache Ignite cluster\n%s' % str(e))
+              'Please read readme.md for instruction how to start Apache Ignite cluster\n%s' % str(e))
         raise e
 
 

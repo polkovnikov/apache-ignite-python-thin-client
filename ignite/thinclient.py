@@ -28,11 +28,31 @@ class ThinClient:
     sock = None
 
     packet_formats = {
+        'handshake.1.0.0': {
+            'code': -1,
+            'request': ['version', b'\x01', 'version_number_1', 'version_number_2', 'version_number_3', b'\x02'],
+            'response': ['success', 'routes'],
+            'response_routes': {
+                'success': {
+                    0: ['version_number_1', 'version_number_2', 'version_number_3', 'binary_object'],
+                    1: []
+                }
+            }
+        },
         'handshake': {
             'code': -1,
             'request': ['version', b'\x01', 'version_number_1', 'version_number_2', 'version_number_3', b'\x02'],
             'response': ['success', 'routes'],
             'response_routes': {
+                'success': {
+                    0: ['version_number_1', 'version_number_2', 'version_number_3', 'binary_object'],
+                    1: []
+                }
+            },
+            'request.auth': ['version', b'\x01', 'version_number_1', 'version_number_2', 'version_number_3', b'\x02',
+                             'binary_object_username', 'binary_object_password'],
+            'response.auth': ['success', 'routes'],
+            'response_routes.auth': {
                 'success': {
                     0: ['version_number_1', 'version_number_2', 'version_number_3', 'binary_object'],
                     1: []
@@ -183,13 +203,13 @@ class ThinClient:
         },
     }
 
-    def __communicate(self, **kwargs):
+    def __communicate(self, *args, **kwargs):
         try:
-            self.__encode_request()
+            self.__encode_request(*args)
             self.raw_response = None
             self.sock.send(self.raw_request)
             self.raw_response = self.sock.recv(4096)
-            self.__decode_request()
+            self.__decode_request(*args)
             if self.response.get('status') is not None:
                 if self.response['status'] != 0:
                     err_msg = BinaryObject().load_bytes(self.response['binary_object']).deserialize()
@@ -202,8 +222,9 @@ class ThinClient:
                 print("Raw response: %s" % list(self.raw_response))
                 print("Decoded:      %s" % self.response)
 
-    def __encode_request(self):
-        operation = self.operation
+    def __encode_request(self, operation, mode=None):
+        if not mode:
+            mode = ''
         data = self.request
         encoded = b''
         op_code = self.packet_formats[operation]['code']
@@ -215,7 +236,7 @@ class ThinClient:
                 if attrs.get(field_name) is None:
                     attrs[field_name] = {}
                 attrs[field_name][field_attr_name] = data[field]
-        fields = self.packet_formats[operation]['request']
+        fields = self.packet_formats[operation]['request%s' % mode]
         for field in fields:
             if isinstance(field, bytes):
                 encoded += field
@@ -245,15 +266,16 @@ class ThinClient:
         encoded = len(encoded).to_bytes(4, byteorder='little') + encoded
         self.raw_request = encoded
 
-    def __decode_request(self):
-        operation = self.operation
+    def __decode_request(self, operation, mode=None):
+        if not mode:
+            mode = ''
         data = self.raw_response
         decoded = {}
         pos = 0
         msg_len = int.from_bytes(data[pos:pos+4], byteorder='little')
         pos += 4
-        fields = list(self.packet_formats[operation]['response'])
-        routes = self.packet_formats[operation].get('response_routes')
+        fields = list(self.packet_formats[operation]['response%s' % mode])
+        routes = self.packet_formats[operation].get('response_routes%s' % mode)
         if routes is None:
             routes = {}
         field_idx = 0
@@ -303,8 +325,19 @@ class ThinClient:
     def __init__(self, **kwargs):
         # Set protocol version
         self.host = '127.0.0.1'
+        if kwargs.get('host'):
+            self.host = kwargs.get('host')
         self.port = 10800
+        if kwargs.get('port'):
+            self.port = kwargs.get('port')
         self.version = [1, 0, 0]
+        if kwargs.get('version'):
+            self.version = []
+            for num in str(kwargs.get('version')).split('.'):
+                self.version.append(int(num))
+        self.auth = False
+        self.username = kwargs.get('username')
+        self.password = kwargs.get('password')
         self.request = {}
         self.response = {}
         self.raw_request = None
@@ -326,13 +359,23 @@ class ThinClient:
             if addr_port is None:
                 addr_port = (self.host, self.port)
             self.sock.connect(addr_port)
-            self.operation = 'handshake'
+            operation = 'handshake'
+            version_text = '%s.%s.%s' % (self.version[0], self.version[1], self.version[2])
+            if self.packet_formats.get('handshake.%s' % version_text):
+                self.operation = 'handshake.%s' % version_text
             self.request = {
                 'version_number_1': self.version[0],
                 'version_number_2': self.version[1],
                 'version_number_3': self.version[2],
+                'binary_object_username': self.username,
+                'binary_object_username.type': 'python.str',
+                'binary_object_password': self.password,
+                'binary_object_password.type': 'python.str',
             }
-            self.__communicate()
+            mode = None
+            if self.username is not None and self.password is not None:
+                mode = '.auth'
+            self.__communicate(operation, mode)
             if self.response['success'] != 1:
                 err_msg = BinaryObject().load_bytes(self.response['binary_object']).deserialize()
                 raise ThinClientException("Connection failed: %s" % err_msg)
@@ -344,27 +387,24 @@ class ThinClient:
         self.sock.close()
 
     def cache_get(self, cache, key, **kwargs):
-        self.operation = 'OP_CACHE_GET'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
             'binary_object_key.type': kwargs.get('key_type')
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_GET')
         return BinaryObject().load_bytes(self.response['binary_object']).deserialize()
 
     def cache_get_binary_object(self, cache, key, **kwargs):
-        self.operation = 'OP_CACHE_GET'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
             'binary_object_key.type': kwargs.get('key_type')
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_GET')
         return BinaryObject().load_bytes(self.response['binary_object'])
 
     def cache_put(self, cache, key, val, **kwargs):
-        self.operation = 'OP_CACHE_PUT'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
@@ -372,17 +412,16 @@ class ThinClient:
             'binary_object_value': val,
             'binary_object_value.type': kwargs.get('value_type'),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_PUT')
         return self.response['status'] == 0
 
     def cache_get_all(self, cache, keys, **kwargs):
-        self.operation = 'OP_CACHE_GET_ALL'
         self.request = {
             'cache': cache,
             'binary_objects': keys,
             'binary_object_count': len(keys),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_GET_ALL')
         doubled_len = int(2*self.response['binary_object_count']).to_bytes(4, byteorder='little')
         list_values = BinaryObject().load_bytes(
             b'\x17\x00\x00\x00\x00' + doubled_len + self.response['binary_object']
@@ -393,107 +432,86 @@ class ThinClient:
         return value
 
     def cache_put_all(self, cache, data, **kwargs):
-        self.operation = 'OP_CACHE_PUT_ALL'
         self.request = {
             'cache': cache,
             'binary_objects': data,
             'binary_object_count': len(data),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_PUT_ALL')
         return self.response['status'] == 0
 
     def cache_contains_key(self, cache, key, **kwargs):
-        self.operation = 'OP_CACHE_CONTAINS_KEY'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
             'binary_object_key.type': kwargs.get('key_type'),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_CONTAINS_KEY')
         return self.response['bool'] == 1
 
     def cache_contains_keys(self, cache, keys, **kwargs):
-        self.operation = 'OP_CACHE_CONTAINS_KEYS'
         self.request = {
             'cache': cache,
             'binary_objects': keys,
             'binary_object_count': len(keys),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_CONTAINS_KEYS')
         return self.response['bool'] == 1
 
     def cache_clear(self, cache):
-        self.operation = 'OP_CACHE_CLEAR'
         self.request = {
             'cache': cache
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_CLEAR')
         return self.response['status'] == 0
 
     def cache_clear_key(self, cache, key, **kwargs):
-        self.operation = 'OP_CACHE_CLEAR_KEY'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
             'binary_object_key.type': kwargs.get('key_type'),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_CLEAR_KEY')
 
     def cache_remove_key(self, cache, key, **kwargs):
-        self.operation = 'OP_CACHE_REMOVE_KEY'
         self.request = {
             'cache': cache,
             'binary_object_key': key,
             'binary_object_key.type': kwargs.get('key_type'),
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_REMOVE_KEY')
         return self.response['bool'] == 1
 
     def cache_remove_all(self, cache):
-        self.operation = 'OP_CACHE_REMOVE_ALL'
         self.request = {
             'cache': cache
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_REMOVE_ALL')
 
     def cache_get_size(self, cache):
-        self.operation = 'OP_CACHE_GET_SIZE'
         self.request = {
             'cache': cache,
             'flags': 0
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_GET_SIZE')
         return self.response['long']
 
     def cache_destroy(self, cache):
-        self.operation = 'OP_CACHE_DESTROY'
         self.request = {
             'cache': cache
         }
-        self.__communicate()
+        self.__communicate('OP_CACHE_DESTROY')
 
     def cache_create_with_name(self, cache):
-        self.operation = 'OP_CACHE_CREATE_WITH_NAME'
         self.request = {
             'binary_object': cache,
             'binary_object.type': 'python.str',
         }
-        self.__communicate()
-
-
-    # def cache_get_cache_size(self,cache):
-    #     msg = {
-    #         'op_code': self.OP_CACHE_GET_SIZE,
-    #         'request_id': self.request_id,
-    #         'data': cache_operation(cache, None)
-    #     }
-    #     self.__communicate(msg)
-    #     return 0
+        self.__communicate('OP_CACHE_CREATE_WITH_NAME')
 
     def cache_get_names(self):
-        self.operation = 'OP_CACHE_GET_NAMES'
         self.request = {}
-        self.__communicate()
+        self.__communicate('OP_CACHE_GET_NAMES')
         return sorted(BinaryObject().load_bytes(b'\x14'+self.response['binary_object']).deserialize())
 
 
