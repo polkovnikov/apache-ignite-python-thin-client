@@ -201,6 +201,17 @@ class ThinClient:
                 }
             }
         },
+        'OP_SCAN_QUERY': {
+            'code': 2000,
+            'request': ['op_code', 'request_id', 'cache_id', 'binary_object', 'filter_platform', 'cursor_page_size', 'partition', 'flag'],
+            'response': ['request_id', 'status', 'routes'],
+            'response_routes': {
+                'status': {
+                    0: ['row_count', 'binary_objects', 'bool'],
+                    -1: ['binary_object']
+                }
+            }
+        }
     }
 
     def __communicate(self, *args, **kwargs):
