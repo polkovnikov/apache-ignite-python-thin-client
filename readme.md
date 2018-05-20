@@ -11,6 +11,7 @@ No. The python client supports only limited set of cache operations, namely:
 `cache_put`,`cache_put_all`,`cache_get`,`cache_get_all`,`cache_remove_key`,
 `cache_clear_key`,`cache_contains_key`,`cache_contains_keys`,
 `cache_remove_all`,`cache_clear`,`cache_create_with_name`,`cache_destroy`
+`scan_query`
 
 ## How to use it?
 ```python
