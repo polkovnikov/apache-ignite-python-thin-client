@@ -40,7 +40,7 @@ def test_put_all_get_all():
         'atomic',
         [2, 3]
     )
-    assert rcvd_values == send_entries, 'Received entries %s' % str(send_entries)
+    assert rcvd_values == send_entries, 'Sent and received entries %s == %s' % (str(send_entries), str(rcvd_values))
 
 
 def test_contains_key():
@@ -123,3 +123,16 @@ def test_create_destroy_cache():
         recent_exception = str(e)
     finally:
         assert 'Cache does not exist' in recent_exception, "Cache '%s' does not exists" % cache
+
+
+def test_scan_query():
+    thin.cache_clear('atomic')
+    send_entries = []
+    for i in range(1, 101):
+        thin.cache_put('atomic', i, "value_%s" % i)
+        send_entries.append("%s: value_%s" % (i, i))
+    entries = thin.scan_query('atomic', cursor_page_size=50)
+    rcvd_entries = []
+    for key in sorted(entries.keys()):
+        rcvd_entries.append("%s: %s" % (key, entries[key]))
+    assert send_entries == rcvd_entries, "Received entries %s " % entries

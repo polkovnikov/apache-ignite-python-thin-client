@@ -81,7 +81,7 @@ class ThinClient:
             'response': ['request_id', 'status', 'routes'],
             'response_routes': {
                 'status': {
-                    0: ['binary_object_count', 'binary_object'],
+                    0: ['binary_object_half_count', 'binary_object'],
                     -1: ['binary_object']
                 }
             }
@@ -203,11 +203,23 @@ class ThinClient:
         },
         'OP_SCAN_QUERY': {
             'code': 2000,
-            'request': ['op_code', 'request_id', 'cache_id', 'binary_object', 'filter_platform', 'cursor_page_size', 'partition', 'flag'],
+            'request': ['op_code', 'request_id', 'cache_id', 'flags',
+                        'binary_object', 'cursor_page_size', 'partition', 'is_local'],
+            'response': ['request_id', 'status', 'cursor_id', 'routes'],
+            'response_routes': {
+                'status': {
+                    0: ['binary_object_half_count', 'binary_object', 'bool'],
+                    -1: ['binary_object']
+                },
+            },
+        },
+        'OP_QUERY_SCAN_CURSOR_GET_PAGE': {
+            'code': 2001,
+            'request': ['op_code', 'request_id', 'cursor_id'],
             'response': ['request_id', 'status', 'routes'],
             'response_routes': {
                 'status': {
-                    0: ['row_count', 'binary_objects', 'bool'],
+                    0: ['binary_object_half_count', 'binary_object', 'bool'],
                     -1: ['binary_object']
                 }
             }
@@ -231,6 +243,7 @@ class ThinClient:
                 print("Encoded:      %s" % self.request)
                 print("Raw request:  %s" % list(self.raw_request))
                 print("Raw response: %s" % list(self.raw_response))
+                print("Raw response length: %s" % len(self.raw_response))
                 print("Decoded:      %s" % self.response)
 
     def __encode_request(self, operation, mode=None):
@@ -270,10 +283,24 @@ class ThinClient:
                     encoded += b'\x00'
                 elif field == 'op_code':
                     encoded += int(op_code).to_bytes(2, byteorder='little')
-                elif field == 'request_id':
-                    encoded += self.request_id.to_bytes(8, byteorder='little')
+                elif field in ['request_id', 'cursor_id']:
+                    if field == 'request_id':
+                        encoded += self.request_id.to_bytes(8, byteorder='little')
+                    else:
+                        encoded += data[field].to_bytes(8, byteorder='little')
                 elif field.startswith('version_number'):
                     encoded += data[field].to_bytes(2, byteorder='little')
+                elif field == 'filter_platform':
+                    encoded += data[field].to_bytes(1, byteorder='little')
+                elif field == 'cursor_page_size':
+                    encoded += data[field].to_bytes(4, byteorder='little')
+                elif field == 'partition':
+                    encoded += data[field].to_bytes(4, byteorder='little', signed=True)
+                elif field == 'is_local':
+                    if data[field] is True:
+                        encoded += b'\x01'
+                    else:
+                        encoded += b'\x00'
         encoded = len(encoded).to_bytes(4, byteorder='little') + encoded
         self.raw_request = encoded
 
@@ -283,7 +310,7 @@ class ThinClient:
         data = self.raw_response
         decoded = {}
         pos = 0
-        msg_len = int.from_bytes(data[pos:pos+4], byteorder='little')
+        msg_len = int.from_bytes(data[pos:pos+4], byteorder='little') + 4
         pos += 4
         fields = list(self.packet_formats[operation]['response%s' % mode])
         routes = self.packet_formats[operation].get('response_routes%s' % mode)
@@ -296,33 +323,35 @@ class ThinClient:
             if field == 'binary_object_count':
                 val = int.from_bytes(data[pos:pos+4], byteorder='little')
                 pos += 4
+            elif field == 'binary_object_half_count':
+                field = 'binary_object_count'
+                val = 2*int.from_bytes(data[pos:pos + 4], byteorder='little')
+                pos += 4
             elif field == 'binary_object':
                 val = data[pos:]
-                pos = msg_len-1
+                if field_idx < (len(fields)-1):
+                    start_pos = pos
+                    if decoded.get('binary_object_count'):
+                        pos = BinaryObject().load_bytes(val).skip_entries(decoded['binary_object_count'], 0)
+                        pos += start_pos
+                        val = data[start_pos:pos]
+                    else:
+                        pos = msg_len-1
             elif field == 'bool':
-                val = int.from_bytes(data[pos:pos+1], byteorder='little')
+                val = {0: False, 1: True}[int.from_bytes(data[pos:pos+1], byteorder='little')]
                 pos += 1
-            elif field == 'cache_id':
-                val = int.from_bytes(data[pos:pos+4], byteorder='little')
-                pos += 4
-            elif field == 'flags':
-                val = int.from_bytes(data[pos:pos+1], byteorder='little')
-                pos += 1
-            elif field == 'long':
-                val = int.from_bytes(data[pos:pos+8], byteorder='little')
-                pos += 8
-            elif field == 'request_id':
-                val = int.from_bytes(data[pos:pos+8], byteorder='little')
-                pos += 8
-            elif field == 'status':
-                val = int.from_bytes(data[pos:pos+4], byteorder='little')
-                pos += 4
-            elif field == 'success':
+            elif field in ['flags', 'success']:
                 val = int.from_bytes(data[pos:pos+1], byteorder='little')
                 pos += 1
             elif field.startswith('version_number'):
                 val = int.from_bytes(data[pos:pos+2], byteorder='little')
                 pos += 2
+            elif field in ['cache_id', 'status']:
+                val = int.from_bytes(data[pos:pos+4], byteorder='little')
+                pos += 4
+            elif field in ['cursor_id', 'long', 'request_id']:
+                val = int.from_bytes(data[pos:pos+8], byteorder='little')
+                pos += 8
             if val is not None:
                 decoded[field] = val
             if routes.get(field) is not None:
@@ -433,7 +462,7 @@ class ThinClient:
             'binary_object_count': len(keys),
         }
         self.__communicate('OP_CACHE_GET_ALL')
-        doubled_len = int(2*self.response['binary_object_count']).to_bytes(4, byteorder='little')
+        doubled_len = int(self.response['binary_object_count']).to_bytes(4, byteorder='little')
         list_values = BinaryObject().load_bytes(
             b'\x17\x00\x00\x00\x00' + doubled_len + self.response['binary_object']
         ).deserialize()
@@ -524,6 +553,43 @@ class ThinClient:
         self.request = {}
         self.__communicate('OP_CACHE_GET_NAMES')
         return sorted(BinaryObject().load_bytes(b'\x14'+self.response['binary_object']).deserialize())
+
+    def scan_query(self, cache, **kwargs):
+        options = {
+            'cursor_page_size': 1000,
+            'partition': -1,
+            'is_local': False
+        }
+        for key in kwargs.keys():
+            options[key] = kwargs[key]
+        self.request = {
+            'cache': cache,
+            'binary_object': None,
+            'binary_object.type': 'python.NoneType',
+            'cursor_page_size': options['cursor_page_size'],
+            'partition': options['partition'],
+            'is_local': options['is_local']
+        }
+        self.__communicate('OP_SCAN_QUERY')
+        entries = {}
+        go_next = True
+        cursor_id = None
+        while go_next:
+            if cursor_id is not None:
+                self.request = {
+                    'cursor_id': cursor_id,
+                }
+                self.__communicate('OP_QUERY_SCAN_CURSOR_GET_PAGE')
+            else:
+                cursor_id = self.response['cursor_id']
+            entry_cnt = int(self.response['binary_object_count']).to_bytes(4, byteorder='little')
+            list_values = BinaryObject().load_bytes(
+                b'\x17\x00\x00\x00\x00' + entry_cnt + self.response['binary_object']
+            ).deserialize()
+            for i in range(0, self.response['binary_object_count'], 2):
+                entries[list_values[i]] = list_values[i+1]
+            go_next = self.response['bool']
+        return entries
 
 
 class ThinClientPool:

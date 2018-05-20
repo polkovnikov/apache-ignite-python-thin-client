@@ -218,6 +218,12 @@ class BinaryObject:
         #print("read: %s" % value)
         return value
 
+    def skip_entries(self, entry_num, pos):
+        binary = self.raw_bytes
+        for idx in range(0, entry_num):
+            value, pos = self.deserialize_entry(binary, pos)
+        return pos
+
     def serialize_entry(self, value, binary, **kwargs):
         type_name = kwargs.get('type')
         force_use_type = True
