@@ -225,13 +225,23 @@ class ThinClient:
             }
         }
     }
-
+    
     def __communicate(self, *args, **kwargs):
         try:
             self.__encode_request(*args)
             self.raw_response = None
             self.sock.send(self.raw_request)
-            self.raw_response = self.sock.recv(4096)
+            
+            self.raw_response = bytes()
+            self.raw_response = self.sock.recv(4)
+            assert len(self.raw_response) == 4, 'Actual len = %s!' % len(self.raw_response)
+            msg_len = int.from_bytes(self.raw_response, byteorder='little') + 4
+            
+            while len(self.raw_response) < msg_len:
+                recv_size = min(msg_len - len(self.raw_response), 64 * 1024)
+                self.raw_response += self.sock.recv(recv_size)
+            assert len(self.raw_response) == msg_len, 'Actual len = %s!' % len(self.raw_response)
+            
             self.__decode_request(*args)
             if self.response.get('status') is not None:
                 if self.response['status'] != 0:
