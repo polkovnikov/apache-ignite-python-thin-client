@@ -156,6 +156,7 @@ class BinaryObject:
                     size = int.from_bytes(binary[pos:pos+4], byteorder='little')
                     pos += 4
                     value = binary[pos:pos+size]
+                    pos += size
                 elif parsing == 'bytes-property':
                     value = UUID(bytes=binary[pos:pos+size])
                     pos += size
